@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Islamic Quiz — Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins&display=swap" rel="stylesheet">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family:'Poppins',sans-serif; background:linear-gradient(145deg,#d3f0ff,#b8e3f6); margin:0; padding:0;
+      display:flex; justify-content:center; align-items:center; min-height:100vh; }
+    .container { max-width:400px; background:#fff; padding:30px; border-radius:20px; box-shadow:0 15px 25px rgba(0,0,0,0.15); }
+    h2 { text-align:center; color:#0077b6; }
+    input,button { width:100%; padding:12px; margin:10px 0; font-size:15px; border-radius:10px; border:1px solid #ccc; outline:none; }
+    .input-wrapper { position:relative; }
+    .eye-toggle { position:absolute; top:50%; right:10px; transform:translateY(-50%); cursor:pointer; }
+    button { background:linear-gradient(to right,#00b4d8,#0077b6); color:#fff; font-weight:bold; border:none; cursor:pointer; }
+    button.disabled { opacity:0.6; cursor:not-allowed; }
+    small { font-size:12px; color:red; margin-top:-6px; display:block; }
+    .link { text-align:center; margin-top:10px; }
+    .link span { color:#0077b6; cursor:pointer; }
+    #toast { visibility:hidden; min-width:250px; margin-left:-125px; background:#333; color:#fff;
+      text-align:center; border-radius:4px; padding:16px; position:fixed; left:50%; bottom:30px; z-index:1; }
+    #toast.show { visibility:visible; animation:fadein 0.5s, fadeout 0.5s 2.5s; }
+    @keyframes fadein { from { bottom:0; opacity:0; } to { bottom:30px; opacity:1; }}
+    @keyframes fadeout { from { bottom:30px; opacity:1; } to { bottom:0; opacity:0; }}
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3);
+      border-radius:50%; border-top-color:#fff; animation:spin 1s ease-in-out infinite; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="toast"></div>
+  
+  <div class="container" id="login-box">
+    <h2>Login to Islamic Quiz</h2>
+    <input type="email" id="login-email" placeholder="Enter Gmail" oninput="validateEmail()">
+    <small id="email-error"></small>
+    <div class="input-wrapper">
+      <input type="password" id="login-password" placeholder="Enter Password" oninput="validatePassword()">
+      <span class="eye-toggle" onclick="toggle('login-password')">👁️</span>
+    </div>
+    <small id="password-error"></small>
+    <button onclick="login()">Login</button>
+    <div class="link">Don't have an account? <span onclick="window.location.href='index.html'">Register</span></div>
+    <div class="link"><span onclick="showForgotPassword()">Forgot Password?</span></div>
+    <div id="login-msg"></div>
+  </div>
+
+  <div class="container" id="forgot-box" style="display:none;">
+    <h2>Reset Password</h2>
+    <input type="email" id="forgot-email" placeholder="Enter Your Gmail">
+    <small id="forgot-error"></small>
+    <button onclick="sendResetLink()">Send Reset Link</button>
+    <div class="link"><span onclick="showLogin()">Back to Login</span></div>
+  </div>
+
+  <script>
+    // Firebase Initialization (same as part 1)
+    const firebaseConfig = {
+      apiKey: "AIzaSyCOTwS-H0NQmj6-jDNAlFzu4Yv81f86tTU",
+      authDomain: "islamic-quiz-fe72f.firebaseapp.com",
+      projectId: "islamic-quiz-fe72f",
+      storageBucket: "islamic-quiz-fe72f.appspot.com",
+      messagingSenderId: "523541510921",
+      appId: "1:523541510921:web:b78005ef3bc1f1a14a31d8"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    
+    // Helper Functions
+    function showToast(msg, isError = false) {
+      const t = document.getElementById("toast");
+      t.innerText = msg;
+      t.style.backgroundColor = isError ? "#d32f2f" : "#333";
+      t.className = "show";
+      setTimeout(() => t.className = t.className.replace("show",""), 3000);
+    }
+    
+    function toggle(id) {
+      const input = document.getElementById(id);
+      input.type = (input.type === 'password') ? 'text' : 'password';
+    }
+    
+    function showForgotPassword() {
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('forgot-box').style.display = 'block';
+    }
+    
+    function showLogin() {
+      document.getElementById('forgot-box').style.display = 'none';
+      document.getElementById('login-box').style.display = 'block';
+    }
+    
+    // Validation Functions
+    function validateEmail() {
+      const v = document.getElementById('login-email').value.trim();
+      const errorElement = document.getElementById('email-error');
+      
+      if (!v) errorElement.innerText = "Email is required";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) errorElement.innerText = "Invalid email format";
+      else errorElement.innerText = "";
+      
+      return !errorElement.innerText;
+    }
+    
+    function validatePassword() {
+      const v = document.getElementById('login-password').value;
+      const errorElement = document.getElementById('password-error');
+      
+      if (!v) errorElement.innerText = "Password is required";
+      else errorElement.innerText = "";
+      
+      return !errorElement.innerText;
+    }
+    
+    // Login Function with Admin Approval Check
+    async function login() {
+      if (!validateEmail() || !validatePassword()) {
+        return showToast("Please enter valid credentials", true);
+      }
+      
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const btn = document.querySelector('#login-box button');
+      
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Logging in...';
+      
+      try {
+        // 1. Sign in user
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+        
+        // 2. Check if email is verified
+        if (!user.emailVerified) {
+          await auth.signOut();
+          showToast("Please verify your email first", true);
+          btn.disabled = false;
+          btn.innerHTML = 'Login';
+          return;
+        }
+        
+        // 3. Check admin approval status
+        const userDoc = await db.collection("users").doc(user.uid).get();
+        
+        if (!userDoc.exists) {
+          await auth.signOut();
+          showToast("Account not found. Please register.", true);
+          btn.disabled = false;
+          btn.innerHTML = 'Login';
+          return;
+        }
+        
+        const userData = userDoc.data();
+        
+        if (!userData.approved) {
+          await auth.signOut();
+          showToast("Account pending admin approval", true);
+          btn.disabled = false;
+          btn.innerHTML = 'Login';
+          return;
+        }
+        
+        // 4. If everything is OK, redirect to dashboard
+        showToast("Login successful! Redirecting...");
+        setTimeout(() => {
+          window.location.href = "dashboard.html";
+        }, 1500);
+        
+      } catch (error) {
+        btn.disabled = false;
+        btn.innerHTML = 'Login';
+        
+        let errorMsg = "Login failed. Please try again.";
+        if (error.code === "auth/user-not-found") {
+          errorMsg = "Email not registered. Please register first.";
+        } else if (error.code === "auth/wrong-password") {
+          errorMsg = "Incorrect password. Try again or reset.";
+        } else if (error.code === "auth/too-many-requests") {
+          errorMsg = "Too many attempts. Try again later.";
+        }
+        
+        showToast(errorMsg, true);
+      }
+    }
+    
+    // Password Reset Function
+    async function sendResetLink() {
+      const email = document.getElementById('forgot-email').value.trim();
+      const errorElement = document.getElementById('forgot-error');
+      
+      if (!email) {
+        errorElement.innerText = "Email is required";
+        return;
+      }
+      
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        errorElement.innerText = "Invalid email format";
+        return;
+      }
+      
+      const btn = document.querySelector('#forgot-box button');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Sending...';
+      
+      try {
+        await auth.sendPasswordResetEmail(email);
+        showToast("Password reset link sent to your email");
+        document.getElementById('forgot-error').innerText = "";
+      } catch (error) {
+        let errorMsg = "Failed to send reset link";
+        if (error.code === "auth/user-not-found") {
+          errorMsg = "Email not registered";
+        }
+        showToast(errorMsg, true);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Send Reset Link';
+      }
+    }
+  </script>
+</body>
+</html>￼Enter<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Islamic Quiz — Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins&display=swap" rel="stylesheet">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family:'Poppins',sans-serif; background:linear-gradient(145deg,#d3f0ff,#b8e3f6); margin:0; padding:0;
+      display:flex; justify-content:center; align-items:center; min-height:100vh; }
+    .container { max-width:400px; background:#fff; padding:30px; border-radius:20px; box-shadow:0 15px 25px rgba(0,0,0,0.15); }
+    h2 { text-align:center; color:#0077b6; }
+put,button { width:100%; padding:12px; margin:10px 0; font-size:15px; border-radius:10px; border:1px solid #ccc; outline:none; }
+    .input-wrapper { position:relative; }
+    .eye-toggle { position:absolute; top:50%; right:10px; transform:translateY(-50%); cursor:pointer; }
+    button { background:linear-gradient(to right,#00b4d8,#0077b6); color:#fff; font-weight:bold; border:none; cursor:pointer; }
+    button.disabled { opacity:0.6; cursor:not-allowed; }
+    small { font-size:12px; color:red; margin-top:-6px; display:block; }
+    .link { text-align:center; margin-top:10px; }
+    .link span { color:#0077b6; cursor:pointer; }
+    #toast { visibility:hidden; min-width:250px; margin-left:-125px; background:#333; color:#fff;
+      text-align:center; border-radius:4px; padding:16px; position:fixed; left:50%; bottom:30px; z-index:1; }
+    #toast.show { visibility:visible; animation:fadein 0.5s, fadeout 0.5s 2.5s; }
+    @keyframes fadein { from { bottom:0; opacity:0; } to { bottom:30px; opacity:1; }}
+    @keyframes fadeout { from { bottom:30px; opacity:1; } to { bottom:0; opacity:0; }}
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3);
+      border-radius:50%; border-top-color:#fff; animation:spin 1s ease-in-out infinite; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="toast"></div>
+  
+  <div class="container" id="login-box">
+    <h2>Login to Islamic Quiz</h2>
+    <input type="email" id="login-email" placeholder="Enter Gmail" oninput="validateEmail()">
+    <small id="email-error"></small>
+    <div class="input-wrapper">
+      <input type="password" id="login-password" placeholder="Enter Password" oninput="validatePassword()">
+      <span class="eye-toggle" onclick="toggle('login-password')">👁️</span>
+    </div>
+    <small id="password-error"></small>
+    <button onclick="login()">Login</button>
+    <div class="link">Don't have an account? <span onclick="window.location.href='index.html'">Register</span></div>
+    <div class="link"><span onclick="showForgotPassword()">Forgot Password?</span></div>
+    <div id="login-msg"></div>
+  </div>
+
+  <div class="container" id="forgot-box" style="display:none;">
+    <h2>Reset Password</h2>
+    <input type="email" id="forgot-email" placeholder="Enter Your Gmail">
+    <small id="forgot-error"></small>
+    <button onclick="sendResetLink()">Send Reset Link</button>
+    <div class="link"><span onclick="showLogin()">Back to Login</span></div>
+  </div>
+
+  <script>
+    // Firebase Initialization (same as part 1)
+    const firebaseConfig = {
+      apiKey: "AIzaSyCOTwS-H0NQmj6-jDNAlFzu4Yv81f86tTU",
+      authDomain: "islamic-quiz-fe72f.firebaseapp.com",
+      projectId: "islamic-quiz-fe72f",
+      storageBucket: "islamic-quiz-fe72f.appspot.com",
+      messagingSenderId: "523541510921",
+      appId: "1:523541510921:web:b78005ef3bc1f1a14a31d8"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    
+    // Helper Functions
+    function showToast(msg, isError = false) {
+      const t = document.getElementById("toast");
+      t.innerText = msg;
+      t.style.backgroundColor = isError ? "#d32f2f" : "#333";
+      t.className = "show";
+      setTimeout(() => t.className = t.className.replace("show",""), 3000);
+    }
+    
+    function toggle(id) {
+      const input = document.getElementById(id);
+      input.type = (input.type === 'password') ? 'text' : 'password';
+    }
+    
+    function showForgotPassword() {
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('forgot-box').style.display = 'block';
+    }
+    
+    function showLogin() {
+      document.getElementById('forgot-box').style.display = 'none';
+      document.getElementById('login-box').style.display = 'block';
+    }
+    
+    // Validation Functions
+    function validateEmail() {
+      const v = document.getElementById('login-email').value.trim();
+      const errorElement = document.getElementById('email-error');
+      
+      if (!v) errorElement.innerText = "Email is required";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) errorElement.innerText = "Invalid email format";
+      else errorElement.innerText = "";
+      
+      return !errorElement.innerText;
+    }
+    
+    function validatePassword() {
+      const v = document.getElementById('login-password').value;
+      const errorElement = document.getElementById('password-error');
+      
+      if (!v) errorElement.innerText = "Password is required";
+      else errorElement.innerText = "";
+      
+      return !errorElement.innerText;
+    }
+    
+    // Login Function with Admin Approval Check

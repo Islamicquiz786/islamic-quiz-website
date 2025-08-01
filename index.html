@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Islamic Quiz — Secure Login/Register</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins&display=swap" rel="stylesheet">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family:'Poppins',sans-serif; background:linear-gradient(145deg,#d3f0ff,#b8e3f6); margin:0; padding:0;
+      display:flex; justify-content:center; align-items:center; min-height:100vh; }
+    .container { max-width:400px; background:#fff; padding:30px; border-radius:20px;
+      box-shadow:0 15px 25px rgba(0,0,0,0.15); transition:0.3s; }
+    .container:hover { transform:translateY(-5px); }
+    h2 { text-align:center; color:#0077b6; }
+    input,button { width:100%; padding:12px; margin:10px 0; font-size:15px;
+      border-radius:10px; border:1px solid #ccc; outline:none; }
+    .input-wrapper { position:relative; }
+    .eye-toggle { position:absolute; top:50%; right:10px; transform:translateY(-50%); cursor:pointer; }
+    button { background:linear-gradient(to right,#00b4d8,#0077b6); color:#fff; font-weight:bold;
+      border:none; cursor:pointer; transition: transform 0.2s; position:relative; }
+    button:hover { transform:scale(1.02); }
+    button.disabled { opacity:0.6; cursor:not-allowed; }
+    small { font-size:12px; color:red; margin-top:-6px; display:block; }
+    .link { text-align:center; margin-top:10px; }
+    .link span { color:#0077b6; cursor:pointer; }
+    .note { font-size:14px; text-align:center; color:#444; }
+    #toast { visibility:hidden; min-width:250px; margin-left:-125px; background:#333; color:#fff;
+      text-align:center; border-radius:4px; padding:16px; position:fixed; left:50%; bottom:30px;
+      font-size:17px; z-index:1; }
+    #toast.show { visibility:visible; animation:fadein 0.5s, fadeout 0.5s 2.5s; }
+    @keyframes fadein { from { bottom:0; opacity:0; } to { bottom:30px; opacity:1; }}
+    @keyframes fadeout { from { bottom:30px; opacity:1; } to { bottom:0; opacity:0; }}
+    .plan-section { margin:20px 0; padding:15px; background:#f8f9fa; border-radius:12px; }
+    .select-plan-btn { padding:12px 15px; background:#fff; border:1px solid #0077b6; border-radius:8px; cursor:pointer; margin-bottom:10px; }
+    .plans-container { border:1px solid #ddd; border-radius:8px; overflow:hidden; }
+    .plan-option { padding:12px 15px; border-bottom:1px solid #eee; background:#fff; cursor:pointer; transition:background 0.3s; }
+    .plan-option:hover { background:#f0f8ff; }
+    .plan-option:last-child { border-bottom:none; }
+    .plan-amount { font-weight:bold; color:#0077b6; }
+    .plan-earning { font-size:14px; color:#4CAF50; }
+    .plan-option.selected { background:#0077b6; color:white; }
+    .plan-option.selected .plan-amount, .plan-option.selected .plan-earning { color:white; }
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3);
+      border-radius:50%; border-top-color:#fff; animation:spin 1s ease-in-out infinite; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="toast"></div>
+  
+  <div class="container" id="login-box">
+    <h2>Login to Islamic Quiz</h2>
+    <input type="email" id="login-email" placeholder="Enter Gmail" oninput="validateLoginEmail()">
+    <small id="login-email-error"></small>
+    <div class="input-wrapper">
+      <input type="password" id="login-password" placeholder="Enter Password" oninput="validateLoginPassword()">
+      <span class="eye-toggle" onclick="toggle('login-password')">👁️</span>
+    </div>
+    <small id="login-password-error"></small>
+    <button onclick="login()">Login</button>
+    <div class="link">Don't have an account? <span onclick="showRegister()">Register</span></div>
+    <div class="link"><span onclick="showForgotPassword()">Forgot Password?</span></div>
+    <div class="note" id="login-msg"></div>
+  </div>
+  
+  <div class="container" id="register-box" style="display:none;">
+    <h2>Register for Islamic Quiz</h2>
+    <input type="text" id="reg-name" placeholder="Full Name (Max 12 chars)" maxlength="12" oninput="validateName()">
+    <small id="name-error"></small>
+    <input type="email" id="reg-email" placeholder="Enter Gmail" oninput="validateEmail()">
+    <small id="email-error"></small>
+    <div class="input-wrapper">
+      <input type="password" id="reg-password" placeholder="Password (6-10 chars)" maxlength="10" oninput="validatePassword()">
+      <span class="eye-toggle" onclick="toggle('reg-password')">👁️</span>
+    </div>
+    <small id="password-error"></small>
+    <div class="input-wrapper">
+      <input type="password" id="reg-confirm-password" placeholder="Confirm Password" oninput="validateConfirmPassword()">
+      <span class="eye-toggle" onclick="toggle('reg-confirm-password')">👁️</span>
+    </div>
+    <small id="confirm-password-error"></small>
+    <input type="text" id="reg-whatsapp" placeholder="WhatsApp Number (11 digits, starts with 0)" oninput="validateWhatsapp()">
+    <small id="whatsapp-error"></small>
+    
+    <div class="plan-section">
+      <h3 style="text-align:center;color:#0077b6;">Select Investment Plan</h3>
+      <div class="select-plan-btn" onclick="togglePlanSelection()">
+        <span id="selected-plan-text">Click to select plan</span>
+        <span style="float:right;">▼</span>
+      </div>
+      <div class="plans-container" id="plans-container" style="display:none;">
+        <div class="plan-option" onclick="selectPlan('1000')">
+          <div class="plan-amount">1000 PKR</div>
+          <div class="plan-earning">Daily Earning: 600 PKR</div>
+        </div>
+        <div class="plan-option" onclick="selectPlan('1500')">
+          <div class="plan-amount">1500 PKR</div>
+          <div class="plan-earning">Daily Earning: 900 PKR</div>
+        </div>
+        <div class="plan-option" onclick="selectPlan('2000')">
+          <div class="plan-amount">2000 PKR</div>
+          <div class="plan-earning">Daily Earning: 1200 PKR</div>
+        </div>
+      </div>
+      <input type="hidden" id="selected-plan" name="selected-plan" value="">
+      <small id="plan-error" style="color:red;"></small>
+    </div>
+    
+    <button id="btn-register" onclick="register()">Register</button>
+    <div class="link">Already registered? <span onclick="showLogin()">Login</span></div>
+    <div class="note" id="register-msg"></div>
+  </div>
+  
+  <div class="container" id="forgot-box" style="display:none;">
+    <h2>Reset Password</h2>
+    <input type="email" id="forgot-email" placeholder="Enter Your Gmail" oninput="validateForgotEmail()">
+    <small id="forgot-email-error"></small>
+    <button onclick="sendPasswordReset()">Send Reset Link</button>
+    <div class="link"><span onclick="showLogin()">Back to Login</span></div>
+    <div class="note" id="forgot-msg"></div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCOTwS-H0NQmj6-jDNAlFzu4Yv81f86tTU",
+      authDomain: "islamic-quiz-fe72f.firebaseapp.com",
+      projectId: "islamic-quiz-fe72f",
+      storageBucket: "islamic-quiz-fe72f.appspot.com",
+      messagingSenderId: "523541510921",
+      appId: "1:523541510921:web:b78005ef3bc1f1a14a31d8"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    
+    let selectedPlanValue = null;
+    let registrationData = {};
+    
+    function showToast(msg, isError = false) {
+      const t = document.getElementById("toast");
+      t.innerText = msg;
+      t.style.backgroundColor = isError ? "#d32f2f" : "#333";
+      t.className = "show";
+      setTimeout(() => t.className = t.className.replace("show",""), 3000);
+    }
+    
+    function toggle(id) {
+      const input = document.getElementById(id);
+      input.type = (input.type === 'password') ? 'text' : 'password';
+    }
+    
+    function showRegister() {
+      resetRegisterForm();
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('register-box').style.display = 'block';
+      document.getElementById('forgot-box').style.display = 'none';
+    }
+    
+    function showLogin() {
+      resetRegisterForm();
+      document.getElementById('register-box').style.display = 'none';
+      document.getElementById('login-box').style.display = 'block';
+      document.getElementById('forgot-box').style.display = 'none';
+    }
+    
+    function showForgotPassword() {
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('register-box').style.display = 'none';
+      document.getElementById('forgot-box').style.display = 'block';
+    }
+    
+    function resetRegisterForm() {
+      document.getElementById('register-msg').innerHTML = "";
+    }
+    
+    function togglePlanSelection() {
+      const container = document.getElementById('plans-container');
+      container.style.display = container.style.display === 'none' ? 'block' : 'none';
+    }
+    
+    function selectPlan(planValue) {
+      selectedPlanValue = planValue;
+      document.getElementById('selected-plan').value = planValue;
+      document.getElementById('selected-plan-text').innerText = `${planValue} PKR Plan`;
+      document.getElementById('plan-error').innerText = '';
+      
+      document.querySelectorAll('.plan-option').forEach(option => {
+        option.classList.remove('selected');
+      });
+      
+      event.currentTarget.classList.add('selected');
+      document.getElementById('plans-container').style.display = 'none';
+    }
+    
+    function validateName() {
+      const v = document.getElementById('reg-name').value.trim();
+      const errorElement = document.getElementById('name-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "Name is required";
+        return false;
+      }
+      if (v.length > 12) {
+        errorElement.innerText = "Name must be 12 characters or less";
+        return false;
+      }
+      if (!/^[A-Za-z\s]+$/.test(v)) {
+        errorElement.innerText = "Only letters and spaces allowed";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validateEmail() {
+      const v = document.getElementById('reg-email').value.trim();
+      const errorElement = document.getElementById('email-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "Email is required";
+        return false;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        errorElement.innerText = "Invalid email format";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validatePassword() {
+      const v = document.getElementById('reg-password').value;
+      const errorElement = document.getElementById('password-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "Password is required";
+        return false;
+      }
+      if (v.length < 6) {
+        errorElement.innerText = "Password must be at least 6 characters";
+        return false;
+      }
+      if (v.length > 10) {
+        errorElement.innerText = "Password must be 10 characters or less";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validateConfirmPassword() {
+      const password = document.getElementById('reg-password').value;
+      const confirmPassword = document.getElementById('reg-confirm-password').value;
+      const errorElement = document.getElementById('confirm-password-error');
+      
+      if (confirmPassword.length === 0) {
+        errorElement.innerText = "Please confirm your password";
+        return false;
+      }
+      if (password !== confirmPassword) {
+        errorElement.innerText = "Passwords do not match";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validateWhatsapp() {
+      const v = document.getElementById('reg-whatsapp').value.trim();
+      const errorElement = document.getElementById('whatsapp-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "WhatsApp number is required";
+        return false;
+      }
+      if (!/^0\d{10}$/.test(v)) {
+        errorElement.innerText = "Must be 11 digits starting with 0";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validateLoginEmail() {
+      const v = document.getElementById('login-email').value.trim();
+      const errorElement = document.getElementById('login-email-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "Email is required";
+        return false;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        errorElement.innerText = "Invalid email format";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validateLoginPassword() {
+      const v = document.getElementById('login-password').value;
+      const errorElement = document.getElementById('login-password-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "Password is required";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    function validateForgotEmail() {
+      const v = document.getElementById('forgot-email').value.trim();
+      const errorElement = document.getElementById('forgot-email-error');
+      
+      if (v.length === 0) {
+        errorElement.innerText = "Email is required";
+        return false;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        errorElement.innerText = "Invalid email format";
+        return false;
+      }
+      
+      errorElement.innerText = "";
+      return true;
+    }
+    
+    async function register() {
+      const isNameValid = validateName();
+      const isEmailValid = validateEmail();
+      const isPasswordValid = validatePassword();
+      const isConfirmPasswordValid = validateConfirmPassword();
+      const isWhatsappValid = validateWhatsapp();
+      
+      if (!isNameValid || !isEmailValid || !isPasswordValid || !isConfirmPasswordValid || !isWhatsappValid) {
+        showToast("Please fix all errors before submitting", true);
+        return;
+      }
+      
+      if (!selectedPlanValue) {
+        document.getElementById('plan-error').innerText = "Please select an investment plan";
+        showToast("Please select an investment plan", true);
+        return;
+      }
+      
+      const name = document.getElementById('reg-name').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const whatsapp = document.getElementById('reg-whatsapp').value.trim();
+      
+      registrationData = {
+        name,
+        email,
+        whatsapp,
+        plan: selectedPlanValue,
+        status: "pending",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        approved: false,
+        emailVerified: false
+      };
+      
+      const registerBtn = document.getElementById('btn-register');
+      registerBtn.disabled = true;
+      registerBtn.innerHTML = '<span class="spinner"></span> Registering...';
+      
+      try {
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+        
+        await user.updateProfile({
+          displayName: name
+        });
+        
+        await user.sendEmailVerification();
+        
+        sessionStorage.setItem('tempUserData', JSON.stringify(registrationData));
+        sessionStorage.setItem('tempUserId', user.uid);
+        
+        monitorEmailVerification(user);
+        
+        document.getElementById('register-box').innerHTML = `
+          <div style="background:#f0f8ff; padding:30px; border-radius:15px; text-align:center;">
+            <h3 style="color:#4CAF50;">✅ Registration Successful!</h3>
+            
+            <div style="background:white; padding:15px; border-radius:10px; margin:20px 0;">
+              <h4>Registration Details:</h4>
+              <p>Name: ${name}</p>
+              <p>WhatsApp: ${whatsapp}</p>
+              <p>Selected Plan: ${selectedPlanValue} PKR</p>
+              <p>Status: Pending Approval</p>
+            </div>
+            
+            <p>We have sent a verification email to <strong>${email}</strong>. Please verify your email.</p>
+            <p>Our team will review your registration and contact you within 24 hours.</p>
+            
+            <a href="https://wa.me/923481326140" 
+               style="display:inline-block; background:#25D366; color:white; 
+                      padding:12px 25px; border-radius:8px; text-decoration:none; 
+                      font-weight:bold; margin-top:20px;">
+              Contact Admin on WhatsApp
+            </a>
+            
+            <div class="link" style="margin-top:20px;">
+              <span onclick="showLogin()">Back to Login</span>
+            </div>
+          </div>
+        `;
+        
+        showToast("Registration successful! Please check your email for verification.");
+      } catch (error) {
+        registerBtn.disabled = false;
+        registerBtn.innerHTML = 'Register';
+        
+        let errorMessage = "Registration failed. Please try again.";
+        if (error.code === "auth/email-already-in-use") {
+          errorMessage = "This email is already registered. Please login.";
+        } else if (error.code === "auth/weak-password") {
+          errorMessage = "Password should be at least 6 characters";
+        } else if (error.code === "auth/invalid-email") {
+          errorMessage = "Invalid email address";
+        }
+        
+        showToast(errorMessage, true);
+      }
+    }
+    
+    function monitorEmailVerification(user) {
+      const interval = setInterval(async () => {
+        try {
+          await user.reload();
+          if (user.emailVerified) {
+            clearInterval(interval);
+            
+            const tempUserData = JSON.parse(sessionStorage.getItem('tempUserData'));
+            const tempUserId = sessionStorage.getItem('tempUserId');
+            
+            tempUserData.emailVerified = true;
+            await db.collection("users").doc(tempUserId).set(tempUserData);
+            
+            monitorAdminApproval(tempUserId);
+          }
+        } catch (error) {
+          clearInterval(interval);
+          showToast("Error checking verification status: " + error.message, true);
+        }
+      }, 3000);
+    }
+    
+    function monitorAdminApproval(userId) {
+      const userRef = db.collection("users").doc(userId);
+      
+      userRef.onSnapshot((doc) => {
+        if (doc.exists && doc.data().approved) {
+          showToast("Your account has been approved! Redirecting to dashboard...");
+          setTimeout(() => {
+            window.location.href = "dashboard.html";
+          }, 2000);
+        }
+      }, (error) => {
+        console.error("Approval monitoring error:", error);
+      });
+    }
+    
+    async function login() {
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      
+      if (!validateLoginEmail() || !validateLoginPassword()) {
+        showToast("Please enter valid email and password", true);
+        return;
+      }
+      
+      const loginBtn = document.querySelector('#login-box button');
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = '<span class="spinner"></span> Logging in...';
+      
+      try {
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+        
+        await user.reload();
+        
+        if (!user.emailVerified) {
+          await auth.signOut();
+          showToast("Email not verified. Please verify your email first.", true);
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = 'Login';
+          return;
+        }
+        
+        const userDoc = await db.collection("users").doc(user.uid).get();
+        
+        if (!userDoc.exists) {
+          await auth.signOut();
+          showToast("User data not found. Please register again.", true);
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = 'Login';
+          return;
+        }
+        
+        const userData = userDoc.data();
+        
+        if (!userData.approved) {
+          await auth.signOut();
+          showToast("Your account is pending approval. We'll contact you soon.", true);
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = 'Login';
+          return;
+        }
+        
+        showToast("Login successful! Redirecting...");
+        setTimeout(() => {
+          window.location.href = "dashboard.html";
+        }, 1500);
+        
+      } catch (error) {
+        loginBtn.disabled = false;
+        loginBtn.innerHTML = 'Login';
+        
+        let errorMessage = "Login failed. Please try again.";
+        if (error.code === "auth/user-not-found") {
+          errorMessage = "Email not registered. Please register first.";
+        } else if (error.code === "auth/wrong-password") {
+          errorMessage = "Incorrect password. Please try again.";
+        } else if (error.code === "auth/too-many-requests") {
+          errorMessage = "Too many attempts. Try again later or reset password.";
+        }
+        
+        showToast(errorMessage, true);
+      }
+    }
+    
+    async function sendPasswordReset() {
+      const email = document.getElementById('forgot-email').value.trim();
+      
+      if (!validateForgotEmail()) {
+        showToast("Please enter a valid email", true);
+        return;
+      }
+      
+      const resetBtn = document.querySelector('#forgot-box button');
+      resetBtn.disabled = true;
+      resetBtn.innerHTML = '<span class="spinner"></span> Sending...';
+      
+      try {
+        await auth.sendPasswordResetEmail(email);
+        showToast("Password reset link sent to your email");
+        document.getElementById('forgot-msg').innerText = "Check your email for the password reset link.";
+        resetBtn.disabled = false;
+        resetBtn.innerHTML = 'Send Reset Link';
+      } catch (error) {
+        resetBtn.disabled = false;
+        resetBtn.innerHTML = 'Send Reset Link';
+        
+        let errorMessage = "Failed to send reset email. Please try again.";
+        if (error.code === "auth/user-not-found") {
+          errorMessage = "Email not registered. Please register first.";
+        }
+        
+        showToast(errorMessage, true);
+      }
+    }
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      auth.onAuthStateChanged(user => {
+        if (user) {
+          checkAdminApproval(user.uid);
+        }
+      });
+    });
+    
+    async function checkAdminApproval(userId) {
+      try {
+        const userDoc = await db.collection("users").doc(userId).get();
+        
+        if (userDoc.exists && userDoc.data().approved) {
+          window.location.href = "dashboard.html";
+        }
+      } catch (error) {
+        console.error("Approval check error:", error);
+      }
+    }
+  </script>
+</body>
+</html>
